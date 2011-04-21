@@ -57,22 +57,27 @@ cmd(NameOrPid, Cmd, Timeout) when is_integer(Timeout) ->
     Ref = gen_server:call(NameOrPid, {cmd, Packets}, 2000),
     case length(Packets) of
         1 ->
-            receive_resp(NameOrPid, Cmd, Ref, Timeout, []);
+            receive_resp(NameOrPid, Cmd, Ref, Timeout, undefined, false);
         Len ->
-            [receive_resp(NameOrPid, Cmd, Ref, Timeout, []) || _ <- lists:seq(1,Len)]
+            [receive_resp(NameOrPid, Cmd, Ref, Timeout, undefined, false) || _ <- lists:seq(1,Len)]
     end.
 
-receive_resp(NameOrPid, Cmd, Ref, Timeout, Acc) ->
+receive_resp(NameOrPid, Cmd, Ref, Timeout, Acc, IsList) ->
     receive
+        {Ref, done} when is_list(Acc), IsList == true ->
+            lists:reverse(Acc);
         {Ref, done} ->
-            case Acc of
-                [Val] -> Val;
-                _ -> lists:reverse(Acc)
-            end;
-        {Ref, closed} when length(Acc) == 0 ->
+            Acc;
+        {Ref, closed} when length(Acc) == 0; Acc == undefined ->
             cmd(NameOrPid, Cmd, Timeout);
-        {Ref, Val} ->
-            receive_resp(NameOrPid, Cmd, Ref, Timeout, [Val|Acc])
+        {Ref, closed} ->
+            {error, closed};
+        {Ref, {multi_bulk, _NumVals}} ->
+            receive_resp(NameOrPid, Cmd, Ref, Timeout, [], true);
+        {Ref, Val} when IsList == true ->
+            receive_resp(NameOrPid, Cmd, Ref, Timeout, [Val|Acc], IsList);
+        {Ref, Val} when IsList == false ->
+            receive_resp(NameOrPid, Cmd, Ref, Timeout, Val, IsList)
     after Timeout ->
             gen_server:cast(NameOrPid, {cancel, Ref}),
             {error, timeout}

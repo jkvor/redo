@@ -120,6 +120,7 @@ parse(Callback, {raw, <<"*", Rest/binary>> = Data}) ->
     case read_line(Rest) of
         {ok, BinNum, Rest1} ->
             Num = list_to_integer(binary_to_list(BinNum)),
+            Callback({multi_bulk, Num}),
             parse(Callback, {multi_bulk, Num, Rest1});
         {error, eof} ->
             {eof, {raw, Data}}
