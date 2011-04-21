@@ -98,7 +98,7 @@ parse(Callback, {raw, <<"$", Rest/binary>> = Data}) ->
     case read_line(Rest) of
         {ok, BinSize, Rest1} ->
             Size = list_to_integer(binary_to_list(BinSize)),
-            case Size > 0 of
+            case Size >= 0 of
                 true ->
                     case Rest1 of
                         <<Str:Size/binary, "\r\n", Rest2/binary>> ->

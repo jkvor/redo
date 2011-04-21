@@ -29,6 +29,10 @@ redis_proto_test() ->
         {raw, <<"$-1\r\n">>}),
 
     redo_redis_proto:parse(
+        fun(Val) -> ?assertEqual(<<>>, Val) end,
+        {raw, <<"$0\r\n\r\n">>}),
+
+    redo_redis_proto:parse(
         fun(Val) -> ?assertEqual(<<"OK">>, Val) end,
         {raw, <<"+OK\r\n">>}),
 
