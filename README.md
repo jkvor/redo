@@ -1,3 +1,7 @@
+### Philosophy
+
+> If you wish to write a redis client from scratch, you must first invent the universe.
+
 ### About
 
 Redo is a pipelined redis client written in Erlang. It lacks any sort of syntactic sugar. The only API function is redo:cmd, which takes a raw redis command.
