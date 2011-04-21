@@ -49,15 +49,15 @@ start_link(Name, Opts) when is_atom(Name), is_list(Opts) ->
 cmd(Cmd) ->
     cmd(?MODULE, Cmd, ?TIMEOUT).
 
-cmd(Name, Cmd) when is_atom(Name) ->
-    cmd(Name, Cmd, ?TIMEOUT).
+cmd(NameOrPid, Cmd) ->
+    cmd(NameOrPid, Cmd, ?TIMEOUT).
 
-cmd(Name, Cmd, Timeout) when is_atom(Name), is_integer(Timeout) ->
+cmd(NameOrPid, Cmd, Timeout) when is_integer(Timeout) ->
     Packets = redo_redis_proto:package(Cmd),
-    Ref = gen_server:call(Name, {cmd, Packets}, 2000),
-    receive_resp(Name, Cmd, Ref, Timeout, []).
+    Ref = gen_server:call(NameOrPid, {cmd, Packets}, 2000),
+    receive_resp(NameOrPid, Cmd, Ref, Timeout, []).
 
-receive_resp(Name, Cmd, Ref, Timeout, Acc) ->
+receive_resp(NameOrPid, Cmd, Ref, Timeout, Acc) ->
     receive
         {Ref, done} ->
             case Acc of
@@ -65,11 +65,11 @@ receive_resp(Name, Cmd, Ref, Timeout, Acc) ->
                 _ -> lists:reverse(Acc)
             end;
         {Ref, closed} when length(Acc) == 0 ->
-            cmd(Name, Cmd, Timeout);
+            cmd(NameOrPid, Cmd, Timeout);
         {Ref, Val} ->
-            receive_resp(Name, Cmd, Ref, Timeout, [Val|Acc])
+            receive_resp(NameOrPid, Cmd, Ref, Timeout, [Val|Acc])
     after Timeout ->
-            gen_server:cast(Name, {cancel, Ref}),
+            gen_server:cast(NameOrPid, {cancel, Ref}),
             {error, timeout}
     end.
     
