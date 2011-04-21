@@ -55,7 +55,12 @@ cmd(NameOrPid, Cmd) ->
 cmd(NameOrPid, Cmd, Timeout) when is_integer(Timeout) ->
     Packets = redo_redis_proto:package(Cmd),
     Ref = gen_server:call(NameOrPid, {cmd, Packets}, 2000),
-    receive_resp(NameOrPid, Cmd, Ref, Timeout, []).
+    case length(Packets) of
+        1 ->
+            receive_resp(NameOrPid, Cmd, Ref, Timeout, []);
+        Len ->
+            [receive_resp(NameOrPid, Cmd, Ref, Timeout, []) || _ <- lists:seq(1,Len)]
+    end.
 
 receive_resp(NameOrPid, Cmd, Ref, Timeout, Acc) ->
     receive
@@ -128,22 +133,13 @@ handle_cast(_Msg, State) ->
 %%    {stop, Reason, State}
 %% Description: Handling all non call/cast messages
 %%--------------------------------------------------------------------
-handle_info({tcp, Sock, Data}, #state{sock=Sock, queue=Queue}=State) ->
+handle_info({tcp, Sock, Data}, #state{sock=Sock}=State) ->
     Packet = packet(State, Data),
-    case queue:peek(Queue) of
-        {value, {Pid, Ref}} ->
-            Fun = fun(Val) -> Pid ! {Ref, Val} end,
-            case redo_redis_proto:parse(Fun, Packet) of
-                {ok, Rest} ->
-                    Pid ! {Ref, done},
-                    {_, Queue1} = queue:out(Queue),
-                    {noreply, State#state{queue=Queue1, buffer=Rest}};
-                {eof, Rest} ->
-                    inet:setopts(Sock, [{active, once}]),
-                    {noreply, State#state{buffer=Rest}}
-            end;
-        empty ->
-            {stop, {error, no_destination_for_packet}, State}
+    case process_packet(State, Packet) of
+        {ok, State1} ->
+            {noreply, State1};
+        Err ->
+            {stop, Err, State}
     end;
 
 handle_info({tcp_closed, Sock}, #state{sock=Sock, queue=Queue}=State) ->
@@ -227,6 +223,28 @@ auth(Sock, Pass) ->
 send(Sock, Packet) ->
     inet:setopts(Sock, [{active, once}]),
     gen_tcp:send(Sock, Packet).
+
+process_packet(#state{sock=Sock, queue=Queue}=State, Packet) ->
+    case queue:peek(Queue) of
+        {value, {Pid, Ref}} ->
+            Fun = fun(Val) -> Pid ! {Ref, Val} end,
+            case redo_redis_proto:parse(Fun, Packet) of
+                {ok, Rest} ->
+                    Pid ! {Ref, done},
+                    {_, Queue1} = queue:out(Queue),
+                    case Rest of
+                        {raw, <<>>} ->
+                            {ok, State#state{queue=Queue1, buffer = {raw, <<>>}}};
+                        _ ->
+                            process_packet(State#state{queue=Queue1}, packet(State#state{buffer=Rest}, <<>>))
+                    end;
+                {eof, Rest} ->
+                    inet:setopts(Sock, [{active, once}]),
+                    {ok, State#state{buffer=Rest}}
+            end;
+        empty ->
+            {error, no_destination_for_packet}
+    end.
 
 packet(#state{buffer={raw, Buffer}}, Data) ->
     {raw, <<Buffer/binary, Data/binary>>};
