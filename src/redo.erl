@@ -142,6 +142,7 @@ handle_info({tcp, Sock, Data}, #state{sock=Sock}=State) ->
     Packet = packet(State, Data),
     case process_packet(State, Packet) of
         {ok, State1} ->
+            inet:setopts(Sock, [{active, once}]),
             {noreply, State1};
         Err ->
             {stop, Err, State}
@@ -229,7 +230,7 @@ send(Sock, Packet) ->
     inet:setopts(Sock, [{active, once}]),
     gen_tcp:send(Sock, Packet).
 
-process_packet(#state{sock=Sock, queue=Queue}=State, Packet) ->
+process_packet(#state{queue=Queue}=State, Packet) ->
     case queue:peek(Queue) of
         {value, {Pid, Ref}} ->
             Fun = fun(Val) -> Pid ! {Ref, Val} end,
@@ -244,7 +245,6 @@ process_packet(#state{sock=Sock, queue=Queue}=State, Packet) ->
                             process_packet(State#state{queue=Queue1}, packet(State#state{buffer=Rest}, <<>>))
                     end;
                 {eof, Rest} ->
-                    inet:setopts(Sock, [{active, once}]),
                     {ok, State#state{buffer=Rest}}
             end;
         empty ->

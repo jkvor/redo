@@ -49,5 +49,3 @@ redis_proto_test() ->
         {raw, <<":1234\r\n">>}),
 
     ok.
-
-

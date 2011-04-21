@@ -12,7 +12,14 @@ Redo is a pipelined redis client written in Erlang. It lacks any sort of syntact
 
 ### Test
 
+#### Unit tests
+
     $ ./rebar eunit suite=redo
+
+#### Concurrency test
+
+    $ erl -pa ebin
+    1> redo_concurrency_test:run(20, 100). %% Num Pids, Num Operations Performed
 
 ### Run
 
