@@ -52,17 +52,19 @@ cmd(Name, Cmd) when is_atom(Name) ->
 cmd(Name, Cmd, Timeout) when is_atom(Name), is_integer(Timeout) ->
     Packets = redo_redis_proto:package(Cmd),
     Ref = gen_server:call(Name, {cmd, Packets}, 2000),
-    receive_resp(Name, Ref, Timeout, []).
+    receive_resp(Name, Cmd, Ref, Timeout, []).
 
-receive_resp(Name, Ref, Timeout, Acc) ->
+receive_resp(Name, Cmd, Ref, Timeout, Acc) ->
     receive
         {Ref, done} ->
             case Acc of
                 [Val] -> Val;
                 _ -> lists:reverse(Acc)
             end;
+        {Ref, closed} when length(Acc) == 0 ->
+            cmd(Name, Cmd, Timeout);
         {Ref, Val} ->
-            receive_resp(Name, Ref, Timeout, [Val|Acc])
+            receive_resp(Name, Cmd, Ref, Timeout, [Val|Acc])
     after Timeout ->
             gen_server:cast(Name, {cancel, Ref}),
             {error, timeout}
@@ -141,13 +143,19 @@ handle_info({tcp, Sock, Data}, #state{sock=Sock, queue=Queue}=State) ->
             {stop, {error, no_destination_for_packet}, State}
     end;
 
-handle_info({tcp_closed, Sock}, #state{sock=Sock}=State) ->
+handle_info({tcp_closed, Sock}, #state{sock=Sock, queue=Queue}=State) ->
     error_logger:error_report(tcp_closed),
-    {noreply, State};
+    [Pid ! {Ref, closed} || {Pid, Ref} <- queue:to_list(Queue)],
+    case connect(State#state{queue = queue:new()}) of
+        State1 when is_record(State1, state) ->
+            {noreply, State1};
+        Err ->
+            {stop, Err, State}
+    end;
 
 handle_info({tcp_error, Sock, Reason}, #state{sock=Sock}=State) ->
     error_logger:error_report([tcp_error, Reason]),
-    {noreply, State};
+    {stop, Reason, State};
 
 handle_info(_Info, State) ->
     {noreply, State}.
