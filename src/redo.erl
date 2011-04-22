@@ -53,31 +53,44 @@ cmd(NameOrPid, Cmd) ->
     cmd(NameOrPid, Cmd, ?TIMEOUT).
 
 cmd(NameOrPid, Cmd, Timeout) when is_integer(Timeout) ->
+    %% format commands to be sent to redis
     Packets = redo_redis_proto:package(Cmd),
-    Ref = gen_server:call(NameOrPid, {cmd, Packets}, 2000),
-    case length(Packets) of
-        1 ->
+
+    %% send the commands and receive back
+    %% unique refs for each packet sent
+    Refs = gen_server:call(NameOrPid, {cmd, Packets}, 2000),
+
+    case Refs of
+        %% for a single packet, receive a single reply
+        [Ref] ->
             receive_resp(NameOrPid, Cmd, Ref, Timeout, undefined, false);
-        Len ->
-            [receive_resp(NameOrPid, Cmd, Ref, Timeout, undefined, false) || _ <- lists:seq(1,Len)]
+        %% for multiple packets, build a list of replies
+        _ ->
+            [receive_resp(NameOrPid, Cmd, Ref, Timeout, undefined, false) || Ref <- Refs]
     end.
 
 receive_resp(NameOrPid, Cmd, Ref, Timeout, Acc, IsList) ->
     receive
-        {Ref, done} when is_list(Acc), IsList == true ->
-            lists:reverse(Acc);
+        %% the entire reply has been received
         {Ref, done} ->
-            Acc;
-        {Ref, closed} when length(Acc) == 0; Acc == undefined ->
-            cmd(NameOrPid, Cmd, Timeout);
+            case is_list(Acc) andalso IsList == true of
+                true -> lists:reverse(Acc);
+                false -> Acc
+            end;
+        %% the connection to the redis server was closed
         {Ref, closed} ->
             {error, closed};
+        %% signal from the parser that the following data
+        %% should be assembled into a list
         {Ref, {multi_bulk, _NumVals}} ->
             receive_resp(NameOrPid, Cmd, Ref, Timeout, [], true);
+        %% receiving a list
         {Ref, Val} when IsList == true ->
             receive_resp(NameOrPid, Cmd, Ref, Timeout, [Val|Acc], IsList);
+        %% receiving a single value
         {Ref, Val} when IsList == false ->
             receive_resp(NameOrPid, Cmd, Ref, Timeout, Val, IsList)
+    %% after the timeout expires, cancel the command and return
     after Timeout ->
             gen_server:cast(NameOrPid, {cancel, Ref}),
             {error, timeout}
@@ -112,10 +125,38 @@ init([Opts]) ->
 %%    {stop, Reason, State}
 %% Description: Handling call messages
 %%--------------------------------------------------------------------
-handle_call({cmd, Packets}, {From, Ref}, #state{sock=Sock, queue=Queue}=State) ->
-    [send(Sock, Packet) || Packet <- Packets],
-    Queue1 = lists:foldl(fun(_, Acc) -> queue:in({From, Ref}, Acc) end, Queue, lists:seq(1,length(Packets))),
-    {reply, Ref, State#state{queue=Queue1}};
+handle_call({cmd, Packets}, {From, _Ref}, #state{queue=Queue}=State) ->
+    case test_connection(State) of
+        State1 when is_record(State1, state) ->
+            %% send each packet to redis
+            %% and generate a unique ref per packet
+            Refs = lists:foldl(
+                fun(Packet, Refs) when is_list(Refs) ->
+                    case gen_tcp:send(State1#state.sock, Packet) of
+                        ok -> [erlang:make_ref()|Refs];
+                        Err -> Err
+                    end;
+                   (_Packet, Err) ->
+                    Err
+                end, [], Packets),
+
+            %% enqueue the client pid/refs
+            case Refs of
+                List when is_list(List) ->
+                    Refs1 = lists:reverse(Refs),
+                    Queue1 = lists:foldl(
+                        fun(Ref, Acc) ->
+                            queue:in({From, Ref}, Acc)
+                        end, Queue, Refs1),
+                    {reply, Refs1, State1#state{queue=Queue1}};
+                Err ->
+                    {stop, Err, State1}
+            end;
+        Err ->
+            error_logger:error_report({connect, Err}),
+            %% failed to connect, retry
+            {reply, {error, closed}, State#state{sock=undefined}, 1000}
+    end;
 
 handle_call(_Msg, _From, State) ->
     {reply, unknown_message, State}.
@@ -138,10 +179,15 @@ handle_cast(_Msg, State) ->
 %%    {stop, Reason, State}
 %% Description: Handling all non call/cast messages
 %%--------------------------------------------------------------------
-handle_info({tcp, Sock, Data}, #state{sock=Sock}=State) ->
-    Packet = packet(State, Data),
+handle_info({tcp, Sock, Data}, #state{sock=Sock, buffer=Buffer}=State) ->
+    %% compose the packet to be processed by combining
+    %% the leftover buffer with the new data packet
+    Packet = packet(Buffer, Data),
+
     case process_packet(State, Packet) of
         {ok, State1} ->
+
+            %% accept next incoming packet
             inet:setopts(Sock, [{active, once}]),
             {noreply, State1};
         Err ->
@@ -150,17 +196,40 @@ handle_info({tcp, Sock, Data}, #state{sock=Sock}=State) ->
 
 handle_info({tcp_closed, Sock}, #state{sock=Sock, queue=Queue}=State) ->
     error_logger:error_report(tcp_closed),
+
+    %% notify all waiting pids that the connection is closed
+    %% so that they may try resending their requests
     [Pid ! {Ref, closed} || {Pid, Ref} <- queue:to_list(Queue)],
-    case connect(State#state{queue = queue:new()}) of
-        State1 when is_record(State1, state) ->
-            {noreply, State1};
+
+    %% reset the state
+    State1 = State#state{
+        queue = queue:new(),
+        cancelled = [],
+        buffer = {raw, <<>>}
+    },
+
+    %% reconnect to redis
+    case connect(State1) of
+        State2 when is_record(State2, state) ->
+            {noreply, State2};
         Err ->
-            {stop, Err, State}
+            error_logger:error_report({connect, Err}),
+            {noreply, State1#state{sock=undefined}, 1000}
     end;
 
 handle_info({tcp_error, Sock, Reason}, #state{sock=Sock}=State) ->
     error_logger:error_report([tcp_error, Reason]),
     {stop, Reason, State};
+
+%% attempt to reconnect to redis
+handle_info(timeout, State) ->
+    case connect(State) of
+        State1 when is_record(State1, state) ->
+            {noreply, State1};
+        Err ->
+            error_logger:error_report({connect, Err}),
+            {noreply, State#state{sock=undefined}, 1000}
+    end;
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -199,13 +268,15 @@ init_state(Opts) ->
     }.
 
 connect(#state{host=Host, port=Port, pass=Pass}=State) ->
-    SockOpts = [binary, {active, false}, {keepalive, true}, {nodelay, true}],
+    SockOpts = [binary, {active, once}, {keepalive, true}, {nodelay, true}],
     case gen_tcp:connect(Host, Port, SockOpts) of
         {ok, Sock} when Pass == undefined; Pass == <<>>; Pass == "" ->
+            error_logger:info_msg("Connected to ~s:~w~n", [Host, Port]),
             State#state{sock=Sock};
         {ok, Sock} ->
             case auth(Sock, Pass) of
                 ok ->
+                    error_logger:info_msg("Connected to ~s:~w~n", [Host, Port]),
                     State#state{sock=Sock};
                 Err ->
                     Err
@@ -213,6 +284,12 @@ connect(#state{host=Host, port=Port, pass=Pass}=State) ->
         Err ->
             Err
     end.
+
+test_connection(#state{sock=undefined}=State) ->
+    connect(State);
+
+test_connection(State) ->
+    State.
 
 auth(Sock, Pass) ->
     case gen_tcp:send(Sock, [<<"AUTH ">>, Pass, <<"\r\n">>]) of
@@ -226,34 +303,47 @@ auth(Sock, Pass) ->
             Err
     end.
 
-send(Sock, Packet) ->
-    inet:setopts(Sock, [{active, once}]),
-    gen_tcp:send(Sock, Packet).
-
 process_packet(#state{queue=Queue}=State, Packet) ->
     case queue:peek(Queue) of
         {value, {Pid, Ref}} ->
             Fun = fun(Val) -> Pid ! {Ref, Val} end,
             case redo_redis_proto:parse(Fun, Packet) of
+                %% the reply has been received in its entirety
+                %% and sent to the waiting client process
                 {ok, Rest} ->
+                    %% notify the client pid that we're finished
+                    %% with this reply
                     Pid ! {Ref, done},
+
+                    %% remove the client pid from the head of the queue
                     {_, Queue1} = queue:out(Queue),
+
                     case Rest of
                         {raw, <<>>} ->
+                            %% we have reached the end of this tcp packet
+                            %% wait for the next incoming packet
                             {ok, State#state{queue=Queue1, buffer = {raw, <<>>}}};
                         _ ->
-                            process_packet(State#state{queue=Queue1}, packet(State#state{buffer=Rest}, <<>>))
+                            %% there is still data left in this packet
+                            %% we may begin processing the next reply
+                            process_packet(State#state{queue=Queue1}, packet(Rest, <<>>))
                     end;
+
+                %% the current reply packet ended abruptly
+                %% we must wait for the next data packet
                 {eof, Rest} ->
                     {ok, State#state{buffer=Rest}}
             end;
+
+        %% something is wrong if there is no client pid
+        %% waiting for this reply
         empty ->
             {error, no_destination_for_packet}
     end.
 
-packet(#state{buffer={raw, Buffer}}, Data) ->
+packet({raw, Buffer}, Data) ->
     {raw, <<Buffer/binary, Data/binary>>};
 
-packet(#state{buffer={multi_bulk, N, Buffer}}, Data) ->
+packet({multi_bulk, N, Buffer}, Data) ->
     {multi_bulk, N, <<Buffer/binary, Data/binary>>}.
 

@@ -25,15 +25,19 @@
 
 -define(CRLF, <<"\r\n">>).
 
+%% packet is already a binary
 package(Packet) when is_binary(Packet) ->
     [Packet];
 
+%% list of strings - single cmd
 package([[Char|_]|_]=Args) when is_integer(Char) ->
     [build_request(Args)];
 
+%% list of binaries - single cmd
 package([Bin|_]=Args) when is_binary(Bin) ->
     [build_request(Args)];
 
+%% list of multiple cmds
 package(Args) when is_list(Args) ->
     build_pipelined_request(Args, []).
 
