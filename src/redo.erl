@@ -30,7 +30,7 @@
 -export([start_link/0, start_link/1, start_link/2, 
          cmd/1, cmd/2, cmd/3]).
 
--record(state, {host, port, pass, sock, queue, cancelled, buffer}).
+-record(state, {host, port, pass, db, sock, queue, cancelled, buffer}).
 
 -define(TIMEOUT, 30000).
 
@@ -258,26 +258,30 @@ init_state(Opts) ->
     Host = proplists:get_value(host, Opts, "localhost"),
     Port = proplists:get_value(port, Opts, 6379),
     Pass = proplists:get_value(pass, Opts),
+    Db   = proplists:get_value(db, Opts, 0),
     #state{
         host = Host,
         port = Port,
         pass = Pass,
+        db = Db,
         queue = queue:new(),
         cancelled = [],
         buffer = {raw, <<>>}
     }.
 
-connect(#state{host=Host, port=Port, pass=Pass}=State) ->
-    SockOpts = [binary, {active, once}, {keepalive, true}, {nodelay, true}],
-    case gen_tcp:connect(Host, Port, SockOpts) of
-        {ok, Sock} when Pass == undefined; Pass == <<>>; Pass == "" ->
-            error_logger:info_msg("Connected to ~s:~w~n", [Host, Port]),
-            State#state{sock=Sock};
+connect(#state{host=Host, port=Port, pass=Pass, db=Db}=State) ->
+    case connect_socket(Host, Port) of
         {ok, Sock} ->
             case auth(Sock, Pass) of
                 ok ->
-                    error_logger:info_msg("Connected to ~s:~w~n", [Host, Port]),
-                    State#state{sock=Sock};
+                    case select_db(Sock, Db) of
+                        ok ->
+                            error_logger:info_msg("Connected to ~s:~w~n", [Host, Port]),
+                            inet:setopts(Sock, [{active, once}]),
+                            State#state{sock=Sock};
+                        Err ->
+                            Err
+                    end;
                 Err ->
                     Err
             end;
@@ -285,11 +289,12 @@ connect(#state{host=Host, port=Port, pass=Pass}=State) ->
             Err
     end.
 
-test_connection(#state{sock=undefined}=State) ->
-    connect(State);
+connect_socket(Host, Port) ->
+    SockOpts = [binary, {active, false}, {keepalive, true}, {nodelay, true}],
+    gen_tcp:connect(Host, Port, SockOpts).
 
-test_connection(State) ->
-    State.
+auth(_Sock, Pass) when Pass == <<>>; Pass == undefined ->
+    ok;
 
 auth(Sock, Pass) ->
     case gen_tcp:send(Sock, [<<"AUTH ">>, Pass, <<"\r\n">>]) of
@@ -302,6 +307,27 @@ auth(Sock, Pass) ->
         Err ->
             Err
     end.
+
+select_db(_Sock, 0) ->
+    ok;
+
+select_db(Sock, Db) ->
+    case gen_tcp:send(Sock, hd(redo_redis_proto:package(["SELECT", Db]))) of
+        ok ->
+            case gen_tcp:recv(Sock, 0) of
+                {ok, <<"+OK\r\n">>} -> ok;
+                {ok, Err} -> {error, Err};
+                Err -> Err
+            end;
+        Err ->
+            Err
+    end.
+
+test_connection(#state{sock=undefined}=State) ->
+    connect(State);
+
+test_connection(State) ->
+    State.
 
 process_packet(#state{queue=Queue}=State, Packet) ->
     case queue:peek(Queue) of
