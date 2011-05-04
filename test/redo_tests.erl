@@ -23,6 +23,44 @@
 -module(redo_tests).
 -include_lib("eunit/include/eunit.hrl").
 
+redis_uri_test() ->
+    ?assertEqual([{host, "127.0.0.1"},
+                  {port, 666},
+                  {pass, "password"},
+                  {db, "1"}],
+                 redo_uri:parse("redis://:password@127.0.0.1:666/1")),
+
+    ?assertEqual([{host, "127.0.0.1"},
+                  {port, 666},
+                  {pass, "password"},
+                  {db, "1"}],
+                 redo_uri:parse("redis://password@127.0.0.1:666/1")),
+
+    ?assertEqual([{host, "127.0.0.1"},
+                  {pass, "password"}],
+                 redo_uri:parse("redis://password@127.0.0.1")),
+
+    ?assertEqual([{host, "127.0.0.1"},
+                  {port, 666},
+                  {db, "1"}],
+                 redo_uri:parse("redis://127.0.0.1:666/1")),
+
+    ?assertEqual([{host, "127.0.0.1"},
+                  {db, "1"}],
+                 redo_uri:parse("redis://127.0.0.1/1")),
+
+    ?assertEqual([{host, "127.0.0.1"},
+                  {port, 666}],
+                 redo_uri:parse("redis://127.0.0.1:666")),
+
+    ?assertEqual([{host, "127.0.0.1"}], redo_uri:parse("redis://127.0.0.1")),
+
+    ?assertEqual([], redo_uri:parse("redis://")),
+
+    ?assertEqual([], redo_uri:parse("")),
+
+    ok.
+
 redis_proto_test() ->
     redo_redis_proto:parse(
         fun(Val) -> ?assertEqual(undefined, Val) end,
