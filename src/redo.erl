@@ -30,7 +30,7 @@
 -export([start_link/0, start_link/1, start_link/2, 
          cmd/1, cmd/2, cmd/3]).
 
--record(state, {host, port, pass, db, sock, queue, cancelled, buffer}).
+-record(state, {host, port, pass, db, sock, queue, cancelled, acc, buffer}).
 
 -define(TIMEOUT, 30000).
 
@@ -63,33 +63,19 @@ cmd(NameOrPid, Cmd, Timeout) when is_integer(Timeout) ->
     case Refs of
         %% for a single packet, receive a single reply
         [Ref] ->
-            receive_resp(NameOrPid, Cmd, Ref, Timeout, undefined, false);
+            receive_resp(NameOrPid, Ref, Timeout);
         %% for multiple packets, build a list of replies
         _ ->
-            [receive_resp(NameOrPid, Cmd, Ref, Timeout, undefined, false) || Ref <- Refs]
+            [receive_resp(NameOrPid, Ref, Timeout) || Ref <- Refs]
     end.
 
-receive_resp(NameOrPid, Cmd, Ref, Timeout, Acc, IsList) ->
+receive_resp(NameOrPid, Ref, Timeout) ->
     receive
-        %% the entire reply has been received
-        {Ref, done} ->
-            case is_list(Acc) andalso IsList == true of
-                true -> lists:reverse(Acc);
-                false -> Acc
-            end;
         %% the connection to the redis server was closed
         {Ref, closed} ->
             {error, closed};
-        %% signal from the parser that the following data
-        %% should be assembled into a list
-        {Ref, {multi_bulk, _NumVals}} ->
-            receive_resp(NameOrPid, Cmd, Ref, Timeout, [], true);
-        %% receiving a list
-        {Ref, Val} when IsList == true ->
-            receive_resp(NameOrPid, Cmd, Ref, Timeout, [Val|Acc], IsList);
-        %% receiving a single value
-        {Ref, Val} when IsList == false ->
-            receive_resp(NameOrPid, Cmd, Ref, Timeout, Val, IsList)
+        {Ref, Val} ->
+            Val
     %% after the timeout expires, cancel the command and return
     after Timeout ->
             gen_server:cast(NameOrPid, {cancel, Ref}),
@@ -183,10 +169,8 @@ handle_info({tcp, Sock, Data}, #state{sock=Sock, buffer=Buffer}=State) ->
     %% compose the packet to be processed by combining
     %% the leftover buffer with the new data packet
     Packet = packet(Buffer, Data),
-
     case process_packet(State, Packet) of
         {ok, State1} ->
-
             %% accept next incoming packet
             inet:setopts(Sock, [{active, once}]),
             {noreply, State1};
@@ -266,6 +250,7 @@ init_state(Opts) ->
         db = Db,
         queue = queue:new(),
         cancelled = [],
+        acc = [],
         buffer = {raw, <<>>}
     }.
 
@@ -329,42 +314,30 @@ test_connection(#state{sock=undefined}=State) ->
 test_connection(State) ->
     State.
 
-process_packet(#state{queue=Queue}=State, Packet) ->
-    case queue:peek(Queue) of
-        {value, {Pid, Ref}} ->
-            Fun = fun(Val) -> Pid ! {Ref, Val} end,
-            case redo_redis_proto:parse(Fun, Packet) of
-                %% the reply has been received in its entirety
-                %% and sent to the waiting client process
-                {ok, Rest} ->
-                    %% notify the client pid that we're finished
-                    %% with this reply
-                    Pid ! {Ref, done},
-
-                    %% remove the client pid from the head of the queue
-                    {_, Queue1} = queue:out(Queue),
-
+process_packet(#state{acc=Acc, queue=Queue}=State, Packet) ->
+    case redo_redis_proto:parse(Acc, Packet) of
+        %% the reply has been received in its entirety
+        {ok, Result, Rest} ->
+            case queue:out(Queue) of
+                {{value, {Pid, Ref}}, Queue1} ->
+                    Pid ! {Ref, Result},
                     case Rest of
                         {raw, <<>>} ->
                             %% we have reached the end of this tcp packet
                             %% wait for the next incoming packet
-                            {ok, State#state{queue=Queue1, buffer = {raw, <<>>}}};
+                            {ok, State#state{acc=[], queue=Queue1, buffer = {raw, <<>>}}};
                         _ ->
                             %% there is still data left in this packet
                             %% we may begin processing the next reply
-                            process_packet(State#state{queue=Queue1}, packet(Rest, <<>>))
+                            process_packet(State#state{acc=[], queue=Queue1}, packet(Rest, <<>>))
                     end;
-
-                %% the current reply packet ended abruptly
-                %% we must wait for the next data packet
-                {eof, Rest} ->
-                    {ok, State#state{buffer=Rest}}
+                {empty, _Queue} ->
+                    {error, queue_empty}
             end;
-
-        %% something is wrong if there is no client pid
-        %% waiting for this reply
-        empty ->
-            {error, no_destination_for_packet}
+        %% the current reply packet ended abruptly
+        %% we must wait for the next data packet
+        {eof, Acc1, Rest} ->
+            {ok, State#state{acc=Acc1, buffer=Rest}}
     end.
 
 packet({raw, Buffer}, Data) ->

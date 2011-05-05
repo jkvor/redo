@@ -68,37 +68,35 @@ to_arg(Atom) when is_atom(Atom) ->
     atom_to_list(Atom).
 
 %% Single line reply
-parse(Callback, {raw, <<"+", Rest/binary>> = Data}) ->
+parse(Acc, {raw, <<"+", Rest/binary>> = Data}) ->
     case read_line(Rest) of
         {ok, Str, Rest1} ->
-            Callback(Str),
-            {ok, {raw, Rest1}};
+            {ok, Str, {raw, Rest1}};
         {error, eof} ->
-            {eof, {raw, Data}}
+            {eof, Acc, {raw, Data}}
     end;
 
 %% Error msg reply
-parse(Callback, {raw, <<"-", Rest/binary>> = Data}) ->
+parse(Acc, {raw, <<"-", Rest/binary>> = Data}) ->
     case read_line(Rest) of
         {ok, Err, Rest1} ->
-            Callback({error, Err}),
-            {ok, {raw, Rest1}};
+            {ok, {error, Err}, {raw, Rest1}};
         {error, eof} ->
-            {eof, {raw, Data}}
+            {eof, Acc, {raw, Data}}
     end;
 
 %% Integer reply
-parse(Callback, {raw, <<":", Rest/binary>> = Data}) ->
+parse(Acc, {raw, <<":", Rest/binary>> = Data}) ->
     case read_line(Rest) of
         {ok, Int, Rest1} ->
-            Callback(list_to_integer(binary_to_list(Int))),
-            {ok, {raw, Rest1}};
+            Val = list_to_integer(binary_to_list(Int)),
+            {ok, Val, {raw, Rest1}};
         {error, eof} ->
-            {eof, {raw, Data}}
+            {eof, Acc, {raw, Data}}
     end;
 
 %% Bulk reply
-parse(Callback, {raw, <<"$", Rest/binary>> = Data}) ->
+parse(Acc, {raw, <<"$", Rest/binary>> = Data}) ->
     case read_line(Rest) of
         {ok, BinSize, Rest1} ->
             Size = list_to_integer(binary_to_list(BinSize)),
@@ -106,32 +104,29 @@ parse(Callback, {raw, <<"$", Rest/binary>> = Data}) ->
                 true ->
                     case Rest1 of
                         <<Str:Size/binary, "\r\n", Rest2/binary>> ->
-                            Callback(Str),
-                            {ok, {raw, Rest2}};
+                            {ok, Str, {raw, Rest2}};
                         _ ->
-                            {eof, {raw, Data}}
+                            {eof, Acc, {raw, Data}}
                     end;
                 false ->
-                    Callback(undefined),
-                    {ok, {raw, Rest1}}
+                    {ok, undefined, {raw, Rest1}}
             end;
         {error, eof} ->
-            {eof, {raw, Data}}
+            {eof, Acc, {raw, Data}}
     end;
 
 %% Multi bulk reply
-parse(Callback, {raw, <<"*", Rest/binary>> = Data}) ->
+parse(Acc, {raw, <<"*", Rest/binary>> = Data}) ->
     case read_line(Rest) of
         {ok, BinNum, Rest1} ->
             Num = list_to_integer(binary_to_list(BinNum)),
-            Callback({multi_bulk, Num}),
-            parse(Callback, {multi_bulk, Num, Rest1});
+            parse(Acc, {multi_bulk, Num, Rest1});
         {error, eof} ->
-            {eof, {raw, Data}}
+            {eof, Acc, {raw, Data}}
     end;
 
-parse(Callback, {multi_bulk, Num, Data}) ->
-    multi_bulk(Callback, Num, Data).
+parse(Acc, {multi_bulk, Num, Data}) ->
+    multi_bulk(Acc, Num, Data).
 
 read_line(Data) ->
     read_line(Data, <<>>).
@@ -145,17 +140,17 @@ read_line(<<>>, _Acc) ->
 read_line(<<C, Rest/binary>>, Acc) ->
     read_line(Rest, <<Acc/binary, C>>).
 
-multi_bulk(_Callback, 0, Rest) ->
-    {ok, {raw, Rest}};
+multi_bulk(Acc, 0, Rest) ->
+    {ok, lists:reverse(Acc), {raw, Rest}};
 
-multi_bulk(_Callback, Num, <<>>) ->
-    {eof, {multi_bulk, Num, <<>>}};
+multi_bulk(Acc, Num, <<>>) ->
+    {eof, Acc, {multi_bulk, Num, <<>>}};
 
-multi_bulk(Callback, Num, Rest) ->
-    case parse(Callback, {raw, Rest}) of
-        {ok, {raw, Rest1}} ->
-            multi_bulk(Callback, Num-1, Rest1);
-        {eof, _} ->
-            {eof, {multi_bulk, Num, Rest}}
+multi_bulk(Acc, Num, Rest) ->
+    case parse(Acc, {raw, Rest}) of
+        {ok, Result, {raw, Rest1}} ->
+            multi_bulk([Result|Acc], Num-1, Rest1);
+        {eof, Acc1, _} ->
+            {eof, Acc1, {multi_bulk, Num, Rest}}
     end.
 
