@@ -16,6 +16,17 @@ Redo is a pipelined redis client written in Erlang. It lacks any sort of syntact
 
     $ ./rebar eunit suite=redo
 
+#### Local read benchmark
+
+    $ erl -pa ebin
+    1> bench:sync(1000).
+    91ms
+    10989 req/sec
+
+    2> bench:async(1000, 100).
+    38ms
+    26315 req/sec
+
 #### Concurrency test
 
     $ erl -pa ebin
