@@ -261,7 +261,6 @@ connect(#state{host=Host, port=Port, pass=Pass, db=Db}=State) ->
                 ok ->
                     case select_db(Sock, Db) of
                         ok ->
-                            error_logger:info_msg("Connected to ~s:~w~n", [Host, Port]),
                             inet:setopts(Sock, [{active, once}]),
                             State#state{sock=Sock};
                         Err ->
