@@ -37,6 +37,9 @@
 start_link() ->
     start_link([]).
 
+start_link(Name) when is_atom(Name) ->
+    start_link(Name, []);
+
 start_link(Opts) when is_list(Opts) ->
     start_link(?MODULE, Opts).
 
