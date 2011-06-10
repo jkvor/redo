@@ -70,6 +70,11 @@ Specifying connection options
     2> redo:cmd(["PING"]).
     <<"PONG">>
 
+    3> redo:start_link(myclient, [{host, "localhost"}, {port, 6379}]).
+    {ok,<0.37.0>}
+    4> redo:cmd(myclient, ["PING"]).
+    <<"PONG">>
+
 ### Commands
 
     erl -pa ebin
