@@ -23,6 +23,7 @@
 -module(redo_uri).
 -export([parse/1]).
 
+-spec parse(binary() | list()) -> list().
 parse(Url) when is_binary(Url) ->
     parse(binary_to_list(Url));
 

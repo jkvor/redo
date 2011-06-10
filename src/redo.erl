@@ -34,27 +34,33 @@
 
 -define(TIMEOUT, 30000).
 
+-spec start_link() -> {ok, pid()} | {error, term()}.
 start_link() ->
     start_link([]).
 
+-spec start_link(atom()) -> {ok, pid()} | {error, term()}.
 start_link(Name) when is_atom(Name) ->
     start_link(Name, []);
 
 start_link(Opts) when is_list(Opts) ->
     start_link(?MODULE, Opts).
 
+-spec start_link(atom(), list()) -> {ok, pid()} | {error, term()}.
 start_link(undefined, Opts) when is_list(Opts) ->
     gen_server:start_link(?MODULE, [Opts], []);
 
 start_link(Name, Opts) when is_atom(Name), is_list(Opts) ->
     gen_server:start_link({local, Name}, ?MODULE, [Opts], []).
 
+-spec cmd(list() | binary()) -> list() | binary() | integer().
 cmd(Cmd) ->
     cmd(?MODULE, Cmd, ?TIMEOUT).
 
+-spec cmd(atom() | pid(), list() | binary()) -> list() | binary() | integer().
 cmd(NameOrPid, Cmd) ->
     cmd(NameOrPid, Cmd, ?TIMEOUT).
 
+-spec cmd(atom() | pid(), list() | binary(), integer()) -> list() | binary() | integer().
 cmd(NameOrPid, Cmd, Timeout) when is_integer(Timeout) ->
     %% format commands to be sent to redis
     Packets = redo_redis_proto:package(Cmd),
@@ -88,9 +94,11 @@ receive_resp(NameOrPid, Ref, Timeout) ->
             {error, timeout}
     end.
 
+-spec subscribe(list() | binary()) -> reference() | {error, term()}.
 subscribe(Channel) ->
     subscribe(?MODULE, Channel).
 
+-spec subscribe(atom() | pid(), list() | binary()) -> reference() | {error, term()}.
 subscribe(NameOrPid, Channel) ->
     Packet = redo_redis_proto:package(["SUBSCRIBE", Channel]),
     gen_server:call(NameOrPid, {subscribe, Packet}, 2000).

@@ -25,6 +25,7 @@
 
 -define(CRLF, <<"\r\n">>).
 
+-spec package(binary() | list()) -> list().
 %% packet is already a binary
 package(Packet) when is_binary(Packet) ->
     [Packet];
@@ -67,6 +68,11 @@ to_arg(Int) when is_integer(Int) ->
 to_arg(Atom) when is_atom(Atom) ->
     atom_to_list(Atom).
 
+-spec parse(list(), {raw, binary()} | {multi_bulk, integer(), binary()}) ->
+    {ok, undefined, {raw, binary()}} |
+    {ok, binary(), {raw, binary()}} |
+    {eof, list(), {raw, binary()}} |
+    {ok, {error, term()}, {raw, binary()}}.
 %% Single line reply
 parse(Acc, {raw, <<"+", Rest/binary>> = Data}) ->
     case read_line(Rest) of
