@@ -113,4 +113,18 @@ Specifying connection options
     1
     6> (fun() -> receive {Ref, Res} -> Res after 10000 -> timeout end end)().
     [<<"message">>,<<"chfoo">>,<<"hello">>]
- 
+
+    %% restart redis server...
+
+    7> (fun() -> receive {Ref, Res} -> Res after 10000 -> timeout end end)().
+    closed
+    8> f(Ref).
+    ok
+    9> Ref = redo:subscribe("chfoo").                                        
+    #Ref<0.0.0.68>
+    10> (fun() -> receive {Ref, Res} -> Res after 10000 -> timeout end end)().
+    [<<"subscribe">>,<<"chfoo">>,1]
+    11> redo:cmd(client, ["PUBLISH", "chfoo", "hello again"]).
+    1
+    12> (fun() -> receive {Ref, Res} -> Res after 10000 -> timeout end end)().
+    [<<"message">>,<<"chfoo">>,<<"hello again">>]
