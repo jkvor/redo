@@ -10,8 +10,7 @@ sync(Num) ->
     ok.
 
 async(Num, Concurrency) ->
-    {ok, Redo} = redo:start_link(undefined, []),
-    redo:cmd(Redo, ["SET", "foo", "bar"]),
+    Redo = setup(),
     Self = self(),
     A = now(),
     Pids = [spawn_link(fun() -> loop(Redo, Num div Concurrency), Self ! {self(), done} end) || _ <- lists:seq(1, Concurrency)],
