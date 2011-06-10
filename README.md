@@ -90,7 +90,12 @@ Specifying connection options
     <<"OK">>
     6> redo:cmd(["HGETALL", "hfoo"]).
     [<<"ONE">>,<<"ABC">>,<<"TWO">>,<<"DEF">>]
-    7> redo:cmd([["GET", "foo"], ["HGETALL", "hfoo"]]).
+
+### Pipelined commands
+
+    1> redo:start_link().
+    <0.33.>
+    2> redo:cmd([["GET", "foo"], ["HGETALL", "hfoo"]]).
     [<<"bar">>, [<<"ONE">>,<<"ABC">>,<<"TWO">>,<<"DEF">>]]
 
 ### Pub/Sub
