@@ -62,15 +62,15 @@ cmd(NameOrPid, Cmd, Timeout) when is_integer(Timeout) ->
     %% send the commands and receive back
     %% unique refs for each packet sent
     Refs = gen_server:call(NameOrPid, {cmd, Packets}, 2000),
+    receive_resps(NameOrPid, Refs, Timeout).
 
-    case Refs of
+receive_resps(NameOrPid, [Ref], Timeout) ->
         %% for a single packet, receive a single reply
-        [Ref] ->
-            receive_resp(NameOrPid, Ref, Timeout);
+        receive_resp(NameOrPid, Ref, Timeout);
+
+receive_resps(NameOrPid, Refs, Timeout) ->
         %% for multiple packets, build a list of replies
-        _ ->
-            [receive_resp(NameOrPid, Ref, Timeout) || Ref <- Refs]
-    end.
+        [receive_resp(NameOrPid, Ref, Timeout) || Ref <- Refs].
 
 receive_resp(NameOrPid, Ref, Timeout) ->
     receive
@@ -84,7 +84,7 @@ receive_resp(NameOrPid, Ref, Timeout) ->
             gen_server:cast(NameOrPid, {cancel, Ref}),
             {error, timeout}
     end.
-    
+ 
 %%====================================================================
 %% gen_server callbacks
 %%====================================================================
