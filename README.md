@@ -49,4 +49,21 @@ Redo is a pipelined redis client written in Erlang. It lacks any sort of syntact
     [<<"ONE">>,<<"ABC">>,<<"TWO">>,<<"DEF">>]
     7> redo:cmd([["GET", "foo"], ["HGETALL", "hfoo"]]).
     [<<"bar">>, [<<"ONE">>,<<"ABC">>,<<"TWO">>,<<"DEF">>]]
+
+### Pub/Sub
+
+    $ erl -pa ebin
+    1> redo:start_link().
+    {ok,<0.33.0>}
+    2> Ref = redo:subscribe("chfoo").
+    #Ref<0.0.0.42>
+    3> (fun() -> receive {Ref, Res} -> Res after 10000 -> timeout end end)().
+    [<<"subscribe">>,<<"chfoo">>,1]
+    4> redo:start_link(client).  
+    {ok,<0.39.0>}
+    5> redo:cmd(client, ["PUBLISH", "chfoo", "hello"]).
+    1
+    6> (fun() -> receive {Ref, Res} -> Res after 10000 -> timeout end end)().
+    [<<"message">>,<<"chfoo">>,<<"hello">>]
  
+

@@ -28,9 +28,9 @@
          handle_info/2, terminate/2, code_change/3]).
 
 -export([start_link/0, start_link/1, start_link/2, 
-         cmd/1, cmd/2, cmd/3]).
+         cmd/1, cmd/2, cmd/3, subscribe/1, subscribe/2]).
 
--record(state, {host, port, pass, db, sock, queue, cancelled, acc, buffer}).
+-record(state, {host, port, pass, db, sock, queue, subscriber, cancelled, acc, buffer}).
 
 -define(TIMEOUT, 30000).
 
@@ -64,13 +64,16 @@ cmd(NameOrPid, Cmd, Timeout) when is_integer(Timeout) ->
     Refs = gen_server:call(NameOrPid, {cmd, Packets}, 2000),
     receive_resps(NameOrPid, Refs, Timeout).
 
+receive_resps(_NameOrPid, {error, Err}, _Timeout) ->
+    {error, Err};
+
 receive_resps(NameOrPid, [Ref], Timeout) ->
-        %% for a single packet, receive a single reply
-        receive_resp(NameOrPid, Ref, Timeout);
+    %% for a single packet, receive a single reply
+    receive_resp(NameOrPid, Ref, Timeout);
 
 receive_resps(NameOrPid, Refs, Timeout) ->
-        %% for multiple packets, build a list of replies
-        [receive_resp(NameOrPid, Ref, Timeout) || Ref <- Refs].
+    %% for multiple packets, build a list of replies
+    [receive_resp(NameOrPid, Ref, Timeout) || Ref <- Refs].
 
 receive_resp(NameOrPid, Ref, Timeout) ->
     receive
@@ -84,7 +87,14 @@ receive_resp(NameOrPid, Ref, Timeout) ->
             gen_server:cast(NameOrPid, {cancel, Ref}),
             {error, timeout}
     end.
- 
+
+subscribe(Channel) ->
+    subscribe(?MODULE, Channel).
+
+subscribe(NameOrPid, Channel) ->
+    Packet = redo_redis_proto:package(["SUBSCRIBE", Channel]),
+    gen_server:call(NameOrPid, {subscribe, Packet}, 2000).
+
 %%====================================================================
 %% gen_server callbacks
 %%====================================================================
@@ -114,7 +124,7 @@ init([Opts]) ->
 %%    {stop, Reason, State}
 %% Description: Handling call messages
 %%--------------------------------------------------------------------
-handle_call({cmd, Packets}, {From, _Ref}, #state{queue=Queue}=State) ->
+handle_call({cmd, Packets}, {From, _Ref}, #state{subscriber=undefined, queue=Queue}=State) ->
     case test_connection(State) of
         State1 when is_record(State1, state) ->
             %% send each packet to redis
@@ -138,6 +148,25 @@ handle_call({cmd, Packets}, {From, _Ref}, #state{queue=Queue}=State) ->
                             queue:in({From, Ref}, Acc)
                         end, Queue, Refs1),
                     {reply, Refs1, State1#state{queue=Queue1}};
+                Err ->
+                    {stop, Err, State1}
+            end;
+        Err ->
+            error_logger:error_report({connect, Err}),
+            %% failed to connect, retry
+            {reply, {error, closed}, State#state{sock=undefined}, 1000}
+    end;
+
+handle_call({cmd, _Packets}, _From, State) ->
+    {reply, {error, subscriber_mode}, State};
+
+handle_call({subscribe, Packet}, {From, _Ref}, State) ->
+    case test_connection(State) of
+        State1 when is_record(State1, state) ->
+            case gen_tcp:send(State1#state.sock, Packet) of
+                ok ->
+                    Ref = erlang:make_ref(),
+                    {reply, Ref, State1#state{subscriber={From, Ref}}};
                 Err ->
                     {stop, Err, State1}
             end;
@@ -187,6 +216,12 @@ handle_info({tcp_closed, Sock}, #state{sock=Sock, queue=Queue}=State) ->
     %% notify all waiting pids that the connection is closed
     %% so that they may try resending their requests
     [Pid ! {Ref, closed} || {Pid, Ref} <- queue:to_list(Queue)],
+
+    %% notify subscriber pid of disconnect
+    case State#state.subscriber of
+        {Pid, Ref} -> Pid ! {Ref, closed};
+        _ -> ok
+    end,
 
     %% reset the state
     State1 = State#state{
@@ -316,30 +351,38 @@ test_connection(#state{sock=undefined}=State) ->
 test_connection(State) ->
     State.
 
-process_packet(#state{acc=Acc, queue=Queue}=State, Packet) ->
+process_packet(#state{acc=Acc, queue=Queue, subscriber=Subscriber}=State, Packet) ->
     case redo_redis_proto:parse(Acc, Packet) of
         %% the reply has been received in its entirety
         {ok, Result, Rest} ->
             case queue:out(Queue) of
                 {{value, {Pid, Ref}}, Queue1} ->
-                    Pid ! {Ref, Result},
-                    case Rest of
-                        {raw, <<>>} ->
-                            %% we have reached the end of this tcp packet
-                            %% wait for the next incoming packet
-                            {ok, State#state{acc=[], queue=Queue1, buffer = {raw, <<>>}}};
-                        _ ->
-                            %% there is still data left in this packet
-                            %% we may begin processing the next reply
-                            process_packet(State#state{acc=[], queue=Queue1}, packet(Rest, <<>>))
-                    end;
-                {empty, _Queue} ->
-                    {error, queue_empty}
+                    send_response(Pid, Ref, Result, Rest, State, Queue1);
+                {empty, Queue1} ->
+                    case Subscriber of
+                        {Pid, Ref} ->
+                            send_response(Pid, Ref, Result, Rest, State, Queue1);
+                        undefined ->
+                            {error, queue_empty}
+                    end
             end;
         %% the current reply packet ended abruptly
         %% we must wait for the next data packet
         {eof, Acc1, Rest} ->
             {ok, State#state{acc=Acc1, buffer=Rest}}
+    end.
+
+send_response(Pid, Ref, Result, Rest, State, Queue) ->
+    Pid ! {Ref, Result},
+    case Rest of
+        {raw, <<>>} ->
+            %% we have reached the end of this tcp packet
+            %% wait for the next incoming packet
+            {ok, State#state{acc=[], queue=Queue, buffer = {raw, <<>>}}};
+        _ ->
+            %% there is still data left in this packet
+            %% we may begin processing the next reply
+            process_packet(State#state{acc=[], queue=Queue}, packet(Rest, <<>>))
     end.
 
 packet({raw, Buffer}, Data) ->
