@@ -38,7 +38,9 @@
 start_link() ->
     start_link([]).
 
--spec start_link(atom()) -> {ok, pid()} | {error, term()}.
+-spec start_link(atom() | list()) ->
+                        {ok, pid()} |
+                        {error, term()}.
 start_link(Name) when is_atom(Name) ->
     start_link(Name, []);
 
