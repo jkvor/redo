@@ -30,6 +30,8 @@
 -export([start_link/0, start_link/1, start_link/2, 
          cmd/1, cmd/2, cmd/3, subscribe/1, subscribe/2]).
 
+-export([running_clients/0]).
+
 -record(state, {host, port, pass, db, sock, queue, subscriber, cancelled, acc, buffer}).
 
 -define(TIMEOUT, 30000).
@@ -107,6 +109,13 @@ subscribe(NameOrPid, Channel) ->
 
 -define(GPROC_PROP_NAME, redo_client).
 -define(GPROC_PROP_VALUE, true).
+
+-spec running_clients() -> [pid()].
+running_clients() ->
+    [Pid ||
+        {Pid, ?GPROC_PROP_VALUE} <-
+            gproc:lookup_local_property(?GPROC_PROP_NAME)].
+
 %%====================================================================
 %% gen_server callbacks
 %%====================================================================
