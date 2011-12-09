@@ -3,6 +3,6 @@
   {description, "Pipelined Redis Erlang Driver"},
   {vsn, "1.0"},
   {registered, []},
-  {applications, [kernel,stdlib]},
+  {applications, [kernel,stdlib,gproc]},
   {env, []}
  ]}.
