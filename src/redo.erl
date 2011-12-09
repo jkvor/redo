@@ -114,7 +114,7 @@ subscribe(NameOrPid, Channel) ->
 running_clients() ->
     [Pid ||
         {Pid, ?GPROC_PROP_VALUE} <-
-            gproc:lookup_local_property(?GPROC_PROP_NAME)].
+            gproc:lookup_local_properties(?GPROC_PROP_NAME)].
 
 %%====================================================================
 %% gen_server callbacks
