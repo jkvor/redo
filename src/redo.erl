@@ -105,6 +105,8 @@ subscribe(NameOrPid, Channel) ->
     Packet = redo_redis_proto:package(["SUBSCRIBE", Channel]),
     gen_server:call(NameOrPid, {subscribe, Packet}, 2000).
 
+-define(GPROC_PROP_NAME, redo_client).
+-define(GPROC_PROP_VALUE, true).
 %%====================================================================
 %% gen_server callbacks
 %%====================================================================
@@ -117,6 +119,7 @@ subscribe(NameOrPid, Channel) ->
 %% Description: Initiates the server
 %%--------------------------------------------------------------------
 init([Opts]) ->
+    gproc:add_local_property(?GPROC_PROP_NAME, true),
     State = init_state(Opts),
     case connect(State) of
         State1 when is_record(State1, state) ->
