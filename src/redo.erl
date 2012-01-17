@@ -54,15 +54,16 @@ start_link(undefined, Opts) when is_list(Opts) ->
 start_link(Name, Opts) when is_atom(Name), is_list(Opts) ->
     gen_server:start_link({local, Name}, ?MODULE, [Opts], []).
 
--spec cmd(list() | binary()) -> list() | binary() | integer().
 cmd(Cmd) ->
     cmd(?MODULE, Cmd, ?TIMEOUT).
 
--spec cmd(atom() | pid(), list() | binary()) -> list() | binary() | integer().
 cmd(NameOrPid, Cmd) ->
     cmd(NameOrPid, Cmd, ?TIMEOUT).
 
--spec cmd(atom() | pid(), list() | binary(), integer()) -> list() | binary() | integer().
+-spec cmd(atom() | pid(), list() | binary(), integer()) ->
+                 integer() | binary() | {'error', Reason::term()} |
+                 [integer() | binary() | {'error', Reason::term()}].
+
 cmd(NameOrPid, Cmd, Timeout) when is_integer(Timeout) ->
     %% format commands to be sent to redis
     Packets = redo_redis_proto:package(Cmd),
