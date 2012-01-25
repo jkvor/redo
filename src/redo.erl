@@ -1,5 +1,5 @@
 %% Copyright (c) 2011 Jacob Vorreuter <jacob.vorreuter@gmail.com>
-%% 
+%%
 %% Permission is hereby granted, free of charge, to any person
 %% obtaining a copy of this software and associated documentation
 %% files (the "Software"), to deal in the Software without
@@ -8,10 +8,10 @@
 %% copies of the Software, and to permit persons to whom the
 %% Software is furnished to do so, subject to the following
 %% conditions:
-%% 
+%%
 %% The above copyright notice and this permission notice shall be
 %% included in all copies or substantial portions of the Software.
-%% 
+%%
 %% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
 %% EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
 %% OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
@@ -27,7 +27,7 @@
 -export([init/1, handle_call/3, handle_cast/2,
          handle_info/2, terminate/2, code_change/3]).
 
--export([start_link/0, start_link/1, start_link/2, 
+-export([start_link/0, start_link/1, start_link/2,
          cmd/1, cmd/2, cmd/3, subscribe/1, subscribe/2]).
 
 -record(state, {host, port, pass, db, sock, queue, subscriber, cancelled, acc, buffer}).
@@ -123,7 +123,7 @@ init([Opts]) ->
         State1 when is_record(State1, state) ->
             {ok, State1};
         Err ->
-            {stop, Err, State}
+            {stop, Err}
     end.
 
 %%--------------------------------------------------------------------
