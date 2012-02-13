@@ -162,8 +162,7 @@ handle_call({cmd, Packets}, {From, _Ref}, #state{subscriber=undefined, queue=Que
                 Err ->
                     {stop, Err, State1}
             end;
-        Err ->
-            error_logger:error_report({connect, Err}),
+        _Err ->
             %% failed to connect, retry
             {reply, {error, closed}, State#state{sock=undefined}, 1000}
     end;
@@ -181,8 +180,7 @@ handle_call({subscribe, Packet}, {From, _Ref}, State) ->
                 Err ->
                     {stop, Err, State1}
             end;
-        Err ->
-            error_logger:error_report({connect, Err}),
+        _Err ->
             %% failed to connect, retry
             {reply, {error, closed}, State#state{sock=undefined}, 1000}
     end;
@@ -222,8 +220,6 @@ handle_info({tcp, Sock, Data}, #state{sock=Sock, buffer=Buffer}=State) ->
     end;
 
 handle_info({tcp_closed, Sock}, #state{sock=Sock, queue=Queue}=State) ->
-    error_logger:error_report(tcp_closed),
-
     %% notify all waiting pids that the connection is closed
     %% so that they may try resending their requests
     [Pid ! {Ref, closed} || {Pid, Ref} <- queue:to_list(Queue)],
@@ -245,13 +241,11 @@ handle_info({tcp_closed, Sock}, #state{sock=Sock, queue=Queue}=State) ->
     case connect(State1) of
         State2 when is_record(State2, state) ->
             {noreply, State2};
-        Err ->
-            error_logger:error_report({connect, Err}),
+        _Err ->
             {noreply, State1#state{sock=undefined}, 1000}
     end;
 
 handle_info({tcp_error, Sock, Reason}, #state{sock=Sock}=State) ->
-    error_logger:error_report([tcp_error, Reason]),
     {stop, Reason, State};
 
 %% attempt to reconnect to redis
@@ -259,8 +253,7 @@ handle_info(timeout, State) ->
     case connect(State) of
         State1 when is_record(State1, state) ->
             {noreply, State1};
-        Err ->
-            error_logger:error_report({connect, Err}),
+        _Err ->
             {noreply, State#state{sock=undefined}, 1000}
     end;
 
