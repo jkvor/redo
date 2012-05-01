@@ -219,23 +219,9 @@ handle_info({tcp, Sock, Data}, #state{sock=Sock, buffer=Buffer}=State) ->
             {stop, Err, State}
     end;
 
-handle_info({tcp_closed, Sock}, #state{sock=Sock, queue=Queue}=State) ->
-    %% notify all waiting pids that the connection is closed
-    %% so that they may try resending their requests
-    [Pid ! {Ref, closed} || {Pid, Ref} <- queue:to_list(Queue)],
+handle_info({tcp_closed, Sock}, #state{sock=Sock}=State) ->
 
-    %% notify subscriber pid of disconnect
-    case State#state.subscriber of
-        {Pid, Ref} -> Pid ! {Ref, closed};
-        _ -> ok
-    end,
-
-    %% reset the state
-    State1 = State#state{
-        queue = queue:new(),
-        cancelled = [],
-        buffer = {raw, <<>>}
-    },
+    State1 = close_connection(State),
 
     %% reconnect to redis
     case connect(State1) of
@@ -395,3 +381,20 @@ packet({raw, Buffer}, Data) ->
 packet({multi_bulk, N, Buffer}, Data) ->
     {multi_bulk, N, <<Buffer/binary, Data/binary>>}.
 
+close_connection(State = #state{queue=Queue}) ->
+    %% notify all waiting pids that the connection is closed
+    %% so that they may try resending their requests
+    [Pid ! {Ref, closed} || {Pid, Ref} <- queue:to_list(Queue)],
+
+    %% notify subscriber pid of disconnect
+    case State#state.subscriber of
+        {Pid, Ref} -> Pid ! {Ref, closed};
+        _ -> ok
+    end,
+
+    %% reset the state
+    State1 = State#state{
+        queue = queue:new(),
+        cancelled = [],
+        buffer = {raw, <<>>}
+    }.
