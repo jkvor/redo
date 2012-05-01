@@ -28,7 +28,8 @@
          handle_info/2, terminate/2, code_change/3]).
 
 -export([start_link/0, start_link/1, start_link/2,
-         cmd/1, cmd/2, cmd/3, subscribe/1, subscribe/2]).
+         cmd/1, cmd/2, cmd/3, subscribe/1, subscribe/2,
+         shutdown/1]).
 
 -record(state, {host, port, pass, db, sock, queue, subscriber, cancelled, acc, buffer}).
 
@@ -105,6 +106,9 @@ subscribe(Channel) ->
 subscribe(NameOrPid, Channel) ->
     Packet = redo_redis_proto:package(["SUBSCRIBE", Channel]),
     gen_server:call(NameOrPid, {subscribe, Packet}, 2000).
+
+shutdown(NameOrPid) ->
+    gen_server:cast(NameOrPid, shutdown).
 
 %%====================================================================
 %% gen_server callbacks
@@ -194,6 +198,15 @@ handle_call(_Msg, _From, State) ->
 %%    {stop, Reason, State}
 %% Description: Handling cast messages
 %%--------------------------------------------------------------------
+handle_cast(shutdown, State = #state{sock=Sock}) ->
+    case is_port(Sock) of
+        true ->
+            catch gen_tcp:close(Sock);
+        false -> ok
+    end,
+    State1 = close_connection(State#state{sock=undefined}),
+    {stop, shutdown, State1};
+
 handle_cast({cancel, Ref}, #state{cancelled=Cancelled}=State) ->
     {noreply, State#state{cancelled=[Ref|Cancelled]}};
 
