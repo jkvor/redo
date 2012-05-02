@@ -406,7 +406,7 @@ close_connection(State = #state{queue=Queue}) ->
     end,
 
     %% reset the state
-    State1 = State#state{
+    State#state{
         queue = queue:new(),
         cancelled = [],
         buffer = {raw, <<>>}
