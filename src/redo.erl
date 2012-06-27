@@ -61,9 +61,11 @@ cmd(Cmd) ->
 cmd(NameOrPid, Cmd) ->
     cmd(NameOrPid, Cmd, ?TIMEOUT).
 
+-type redis_value() :: integer() | binary().
+-type response() :: redis_value() | [redis_value()] | {'error', Reason::term()}.
+
 -spec cmd(atom() | pid(), list() | binary(), integer()) ->
-                 integer() | binary() | {'error', Reason::term()} |
-                 [integer() | binary() | {'error', Reason::term()}].
+                 response() | [response()].
 
 cmd(NameOrPid, Cmd, Timeout) when is_integer(Timeout) ->
     %% format commands to be sent to redis
