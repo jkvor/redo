@@ -31,7 +31,7 @@
          cmd/1, cmd/2, cmd/3, subscribe/1, subscribe/2,
          shutdown/1]).
 
--record(state, {host, port, pass, db, sock, queue, subscriber, cancelled, acc, buffer}).
+-record(state, {host, port, pass, db, sock, queue, subscriber, cancelled, acc, buffer, reconnect}).
 
 -define(TIMEOUT, 30000).
 
@@ -234,8 +234,11 @@ handle_info({tcp, Sock, Data}, #state{sock=Sock, buffer=Buffer}=State) ->
             {stop, Err, State}
     end;
 
-handle_info({tcp_closed, Sock}, #state{sock=Sock}=State) ->
+handle_info({tcp_closed, Sock}, #state{sock=Sock, reconnect=false}=State) ->
+    State1 = close_connection(State),
+    {stop, tcp_closed, State1};
 
+handle_info({tcp_closed, Sock}, #state{sock=Sock}=State) ->
     State1 = close_connection(State),
 
     %% reconnect to redis
@@ -286,6 +289,7 @@ init_state(Opts) ->
     Port = proplists:get_value(port, Opts, 6379),
     Pass = proplists:get_value(pass, Opts),
     Db   = proplists:get_value(db, Opts, 0),
+    Recn = proplists:get_value(reconnect, Opts, true),
     #state{
         host = Host,
         port = Port,
@@ -294,7 +298,8 @@ init_state(Opts) ->
         queue = queue:new(),
         cancelled = [],
         acc = [],
-        buffer = {raw, <<>>}
+        buffer = {raw, <<>>},
+        reconnect = Recn
     }.
 
 connect(#state{host=Host, port=Port, pass=Pass, db=Db}=State) ->
