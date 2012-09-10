@@ -245,7 +245,9 @@ handle_info({tcp_closed, Sock}, #state{sock=Sock}=State) ->
     end;
 
 handle_info({tcp_error, Sock, Reason}, #state{sock=Sock}=State) ->
-    {stop, Reason, State};
+    ?WARN("at=tcp_error sock=~p reason=~p",
+          [Sock, Reason]),
+    {stop, normal, State};
 
 %% attempt to reconnect to redis
 handle_info(timeout, State) ->
