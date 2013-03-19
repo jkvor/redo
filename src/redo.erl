@@ -67,7 +67,7 @@ cmd(NameOrPid, Cmd) ->
 -spec cmd(atom() | pid(), list() | binary(), integer()) ->
                  response() | [response()].
 
-cmd(NameOrPid, Cmd, Timeout) when is_integer(Timeout) ->
+cmd(NameOrPid, Cmd, Timeout) when is_integer(Timeout); Timeout =:= infinity ->
     %% format commands to be sent to redis
     Packets = redo_redis_proto:package(Cmd),
 
