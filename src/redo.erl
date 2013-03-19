@@ -29,7 +29,7 @@
 
 -export([start_link/0, start_link/1, start_link/2,
          cmd/1, cmd/2, cmd/3, subscribe/1, subscribe/2,
-         shutdown/1]).
+         shutdown/1, async_cmd/1, async_cmd/2]).
 
 -record(state, {host, port, pass, db, sock, queue, subscriber, cancelled, acc, buffer, reconnect}).
 
@@ -75,6 +75,13 @@ cmd(NameOrPid, Cmd, Timeout) when is_integer(Timeout); Timeout =:= infinity ->
     %% unique refs for each packet sent
     Refs = gen_server:call(NameOrPid, {cmd, Packets}, 2000),
     receive_resps(NameOrPid, Refs, Timeout).
+
+async_cmd(Cmd) ->
+    async_cmd(?MODULE, Cmd).
+
+async_cmd(NameOrPid, Cmd) ->
+    Packets = redo_redis_proto:package(Cmd),
+    gen_server:call(NameOrPid, {cmd, Packets}).
 
 receive_resps(_NameOrPid, {error, Err}, _Timeout) ->
     {error, Err};
