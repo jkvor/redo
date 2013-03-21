@@ -144,8 +144,10 @@ handle_info({'EXIT', Pid, _Reason}, S=#state{worker=Pid}) ->
 %% Handling responses from redo
 handle_info({Ref, Val}, S=#state{refs=[Ref], acc=Acc, queue=Q}) ->
     {value, TimerRef} = queue:peek(Q),
-    Result = case Val of
-        closed -> lists:reverse([{error,closed} | Acc]);
+    Result = case {Val,Acc} of % if Acc [], one single req, drop list.
+        {closed, []} -> {error,closed};
+        {closed, _} -> lists:reverse([{error,closed} | Acc]);
+        {_, []} -> Val;
         _ -> lists:reverse([Val|Acc])
     end,
     gen_server:cast(self(), {done, TimerRef, Result}),

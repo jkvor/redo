@@ -59,7 +59,7 @@ seq_test_() ->
                 redo_block:cmd(Pid, ["DEL", Key]),
                 redo_block:cmd(Pid, ["EXISTS", Key])],
         ?_assertEqual([0, <<"OK">>, <<"1">>, <<"OK">>, <<"2">>, 1, 0],
-                      [Cmd || [Cmd] <- Cmds])
+                      Cmds)
       end}}.
 
 parallel_test_() ->
@@ -79,10 +79,7 @@ parallel_test_() ->
         Proc = fun() ->
             Key = Keygen(),
             redo_block:cmd(Pid, ["SET", Key, Key]),
-            R = case redo_block:cmd(Pid, ["GET", Key]) of
-                [Res] -> Res;
-                Tup when is_tuple(Tup) -> Tup
-            end,
+            R = redo_block:cmd(Pid, ["GET", Key]),
             redo_block:cmd(Pid, ["DEL", Key]),
             Parent ! {Key, R}
         end,
@@ -108,7 +105,7 @@ timeout_test_() ->
                 redo_block:cmd(Pid, ["GET", Key]),
                 redo_block:cmd(Pid, ["DEL", Key]),
                 redo_block:cmd(Pid, ["EXISTS", Key])],
-        ?_assertMatch([[0], [<<"OK">>], _TimeoutOrVal, [<<"OK">>], [<<"2">>], [1], [0]],
+        ?_assertMatch([0, <<"OK">>, _TimeoutOrVal, <<"OK">>, <<"2">>, 1, 0],
                       Cmds)
       end}}.
 
@@ -130,12 +127,9 @@ parallel_timeout_test_() ->
         Proc = fun() ->
             Key = Keygen(),
             redo_block:cmd(Pid, ["SET", Key, Key], 30000),
-            [R1] = redo_block:cmd(Pid, ["GET", Key], 30000),
-            R2 = case redo_block:cmd(Pid, ["GET", Key], 0) of
-                [Res] -> Res;
-                Tup when is_tuple(Tup) -> Tup
-            end,
-            [R3] = redo_block:cmd(Pid, ["GET", Key], 30000),
+            R1 = redo_block:cmd(Pid, ["GET", Key], 30000),
+            R2 = redo_block:cmd(Pid, ["GET", Key], 0),
+            R3 = redo_block:cmd(Pid, ["GET", Key], 30000),
             redo_block:cmd(Pid, ["DEL", Key], 60000),
             Parent ! {Key,R1,R2,R3}
         end,
