@@ -23,6 +23,8 @@
 -module(redo).
 -behaviour(gen_server).
 
+-include("redo_logging.hrl").
+
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2,
          handle_info/2, terminate/2, code_change/3]).
@@ -257,7 +259,10 @@ handle_info({tcp_closed, Sock}, #state{sock=Sock}=State) ->
     end;
 
 handle_info({tcp_error, Sock, Reason}, #state{sock=Sock}=State) ->
-    {stop, Reason, State};
+    ?WARN("at=tcp_error sock=~p reason=~p",
+          [Sock, Reason]),
+    CState = close_connection(State#state{sock=undefined}),
+    {stop, normal, CState};
 
 %% attempt to reconnect to redis
 handle_info(timeout, State) ->
