@@ -182,10 +182,10 @@ handle_call({cmd, Packets}, {From, _Ref}, #state{subscriber=undefined, queue=Que
             {reply, {error, closed}, State#state{sock=undefined}, 1000}
     end;
 
-handle_call({cmd, _Packets}, _From, State) ->
+handle_call({cmd, _Packets}, _From, State = #state{}) ->
     {reply, {error, subscriber_mode}, State};
 
-handle_call({subscribe, Packet}, {From, _Ref}, State) ->
+handle_call({subscribe, Packet}, {From, _Ref}, State = #state{}) ->
     case test_connection(State) of
         State1 when is_record(State1, state) ->
             case gen_tcp:send(State1#state.sock, Packet) of
@@ -200,8 +200,16 @@ handle_call({subscribe, Packet}, {From, _Ref}, State) ->
             {reply, {error, closed}, State#state{sock=undefined}, 1000}
     end;
 
-handle_call(_Msg, _From, State) ->
+%% state doesn't match. Likely outdated or an error.
+%% Moving from 1.1.0 to here sees the addition of one field
+handle_call(Msg, From, OldState) when 1+tuple_size(OldState) =:= tuple_size(#state{}),
+                                      state =:= element(1,OldState) ->
+    {ok, State} = code_change("v1.1.0", OldState, internal_detection),
+    handle_call(Msg, From, State);
+
+handle_call(_Msg, _From, State = #state{}) ->
     {reply, unknown_message, State}.
+
 
 %%--------------------------------------------------------------------
 %% Function: handle_cast(Msg, State) -> {noreply, State} |
@@ -220,6 +228,13 @@ handle_cast(shutdown, State = #state{sock=Sock}) ->
 
 handle_cast({cancel, Ref}, #state{cancelled=Cancelled}=State) ->
     {noreply, State#state{cancelled=[Ref|Cancelled]}};
+
+%% state doesn't match. Likely outdated or an error.
+%% Moving from 1.1.0 to here sees the addition of one field
+handle_cast(Msg, OldState) when 1+tuple_size(OldState) =:= tuple_size(#state{}),
+                                state =:= element(1,OldState) ->
+    {ok, State} = code_change("v1.1.0", OldState, internal_detection),
+    handle_cast(Msg, State);
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -265,13 +280,20 @@ handle_info({tcp_error, Sock, Reason}, #state{sock=Sock}=State) ->
     {stop, normal, CState};
 
 %% attempt to reconnect to redis
-handle_info(timeout, State) ->
+handle_info(timeout, State = #state{}) ->
     case connect(State) of
         State1 when is_record(State1, state) ->
             {noreply, State1};
         _Err ->
             {noreply, State#state{sock=undefined}, 1000}
     end;
+
+%% state doesn't match. Likely outdated or an error.
+%% Moving from 1.1.0 to here sees the addition of one field
+handle_info(Msg, OldState) when 1+tuple_size(OldState) =:= tuple_size(#state{}),
+                                state =:= element(1,OldState) ->
+    {ok, State} = code_change("v1.1.0", OldState, internal_detection),
+    handle_info(Msg, State);
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -290,6 +312,14 @@ terminate(_Reason, _State) ->
 %% Func: code_change(OldVsn, State, Extra) -> {ok, NewState}
 %% Description: Convert process state when code is changed
 %%--------------------------------------------------------------------
+code_change("v1.1.0", OldState, internal_detection) ->
+    {state, Host, Port, Pass, Db, Sock, Queue, Subscriber, Cancelled,
+            Acc, Buffer} = OldState,
+    %% we make the reconnection set to 'true' given that's the default
+    %% value set in init_state/1
+    {ok, #state{host=Host, port=Port, pass=Pass, db=Db, sock=Sock,
+                queue=Queue, subscriber=Subscriber, cancelled=Cancelled,
+                acc=Acc, buffer=Buffer, reconnect=true}};
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
