@@ -140,9 +140,8 @@ init([Opts]) ->
         Err ->
             case State#state.reconnect of
                 true ->
-                    erlang:send_after(1000, self(), timeout),
                     ?WARN("redo init error: ~p", [Err]),
-                    {ok, State#state{sock=undefined}};
+                    {ok, State#state{sock=undefined}, 1000};
                 _ ->
                     {stop, Err}
             end
