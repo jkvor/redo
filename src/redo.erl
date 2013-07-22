@@ -138,7 +138,15 @@ init([Opts]) ->
         State1 when is_record(State1, state) ->
             {ok, State1};
         Err ->
-            {stop, Err}
+            case State#state.reconnect of
+                true ->
+                    erlang:send_after(1000, self(), timeout),
+                    ?WARN("redo init error: ~p", [Err]),
+                    {ok, State#state{sock=undefined}};
+                _ ->
+                    {stop, Err}
+            end
+            
     end.
 
 %%--------------------------------------------------------------------
