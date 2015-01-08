@@ -28,8 +28,6 @@ run(NumPids, NumOps) ->
     io:format("== THIS TEST RELIES ON A LOCAL REDIS SERVER RUNNING ON localhost:6379         ==~n"),
     io:format("================================================================================~n"),
 
-    random:seed(now()),
-
     case whereis(redo) of
         undefined ->
             {ok, _Pid} = redo:start_link();
@@ -51,6 +49,7 @@ worker(Parent, N, 0) ->
     Parent ! {self(), N, done};
 
 worker(Parent, N, NumOps) ->
+    random:seed(now()),
     StrN = integer_to_list(N),
     StrOp = integer_to_list(NumOps),
     case random:uniform(100) of
