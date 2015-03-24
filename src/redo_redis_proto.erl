@@ -146,6 +146,9 @@ read_line(<<>>, _Acc) ->
 read_line(<<C, Rest/binary>>, Acc) ->
     read_line(Rest, <<Acc/binary, C>>).
 
+multi_bulk(_, Num, Rest) when Num < 0 ->
+     {ok, nil, {raw, Rest}};
+
 multi_bulk(Acc, 0, Rest) ->
     {ok, lists:reverse(Acc), {raw, Rest}};
 

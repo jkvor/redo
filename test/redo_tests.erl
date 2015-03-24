@@ -23,6 +23,7 @@
 -module(redo_tests).
 -include_lib("eunit/include/eunit.hrl").
 
+
 redis_uri_test() ->
     ?assertEqual([{host, "127.0.0.1"},
                   {port, 666},
@@ -58,32 +59,21 @@ redis_uri_test() ->
     ?assertEqual([], redo_uri:parse("redis://")),
 
     ?assertEqual([], redo_uri:parse("")),
-
     ok.
 
 redis_proto_test() ->
-    redo_redis_proto:parse(
-        fun(Val) -> ?assertEqual(undefined, Val) end,
-        {raw, <<"$-1\r\n">>}),
-
-    redo_redis_proto:parse(
-        fun(Val) -> ?assertEqual(<<>>, Val) end,
-        {raw, <<"$0\r\n\r\n">>}),
-
-    redo_redis_proto:parse(
-        fun(Val) -> ?assertEqual(<<"OK">>, Val) end,
-        {raw, <<"+OK\r\n">>}),
-
-    redo_redis_proto:parse(
-        fun(Val) -> ?assertEqual({error, <<"Error">>}, Val) end,
-        {raw, <<"-Error\r\n">>}),
- 
-    redo_redis_proto:parse(
-        fun(Val) -> ?assertEqual(<<"FOO">>, Val) end,
-        {raw, <<"$3\r\nFOO\r\n">>}),
-
-    redo_redis_proto:parse(
-        fun(Val) -> ?assertEqual(1234, Val) end,
-        {raw, <<":1234\r\n">>}),
-
+    ?assertEqual({ok, undefined, {raw,<<>>}},
+                 redo_redis_proto:parse([], {raw, <<"$-1\r\n">>})),
+    ?assertEqual({ok, <<>>, {raw, <<>>}},
+                 redo_redis_proto:parse([], {raw, <<"$0\r\n\r\n">>})),
+    ?assertEqual({ok, <<"OK">>,{raw, <<>>}},
+                 redo_redis_proto:parse([], {raw, <<"+OK\r\n">>})),
+    ?assertEqual({ok, {error, <<"Error">>}, {raw, <<>>}},
+                 redo_redis_proto:parse([], {raw, <<"-Error\r\n">>})),
+    ?assertEqual({ok, <<"FOO">>, {raw, <<>>}},
+                 redo_redis_proto:parse([], {raw, <<"$3\r\nFOO\r\n">>})),
+    ?assertEqual({ok, 1234, {raw, <<>>}},
+                 redo_redis_proto:parse([], {raw, <<":1234\r\n">>})),
+    ?assertEqual({ok,nil,{raw,<<>>}},
+                 redo_redis_proto:parse([], {raw, <<"*-1\r\n">>})),
     ok.
