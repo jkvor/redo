@@ -23,7 +23,6 @@
 -module(redo_tests).
 -include_lib("eunit/include/eunit.hrl").
 
-
 redis_uri_test() ->
     ?assertEqual([{host, "127.0.0.1"},
                   {port, 666},
@@ -74,6 +73,6 @@ redis_proto_test() ->
                  redo_redis_proto:parse([], {raw, <<"$3\r\nFOO\r\n">>})),
     ?assertEqual({ok, 1234, {raw, <<>>}},
                  redo_redis_proto:parse([], {raw, <<":1234\r\n">>})),
-    ?assertEqual({ok,nil,{raw,<<>>}},
+    ?assertEqual({ok, undefined, {raw,<<>>}},
                  redo_redis_proto:parse([], {raw, <<"*-1\r\n">>})),
     ok.
