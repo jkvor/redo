@@ -149,6 +149,9 @@ read_line(<<C, Rest/binary>>, Acc) ->
 multi_bulk(Acc, 0, Rest) ->
     {ok, lists:reverse(Acc), {raw, Rest}};
 
+multi_bulk(_, Num, Rest) when Num < 0 ->
+     {ok, undefined, {raw, Rest}};
+
 multi_bulk(Acc, Num, <<>>) ->
     {eof, Acc, {multi_bulk, Num, <<>>}};
 
