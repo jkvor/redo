@@ -2,3 +2,4 @@
 src/*.swp
 ebin
 .eunit
+.rebar
