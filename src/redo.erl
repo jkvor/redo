@@ -64,7 +64,7 @@ cmd(NameOrPid, Cmd) ->
     cmd(NameOrPid, Cmd, ?TIMEOUT).
 
 -type redis_value() :: integer() | binary().
--type response() :: redis_value() | [redis_value()] | {'error', Reason::term()}.
+-type response() :: redis_value() | [redis_value()] | undefined | {'error', Reason::term()}.
 
 -spec cmd(atom() | pid(), list() | binary(), integer()) ->
                  response() | [response()].
